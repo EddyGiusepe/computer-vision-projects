@@ -7,7 +7,9 @@ authors = [
     { name = "EddyGiusepe", email = "eddychirinos.unac@gmail.com" }
 ]
 requires-python = ">=3.13"
-dependencies = []
+dependencies = [
+    "ultralytics>=8.4.46",
+]
 
 [dependency-groups]
 dev = [
