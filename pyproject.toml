@@ -1,0 +1,15 @@
+[project]
+name = "projects-vc"
+version = "0.1.0"
+description = "Aqui vamos aprofundar o estudo em visão computacional com diversas tecnologias atuais"
+readme = "README.md"
+authors = [
+    { name = "EddyGiusepe", email = "eddychirinos.unac@gmail.com" }
+]
+requires-python = ">=3.13"
+dependencies = []
+
+[dependency-groups]
+dev = [
+    "black>=26.3.1",
+]
