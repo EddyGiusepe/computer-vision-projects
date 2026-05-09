@@ -19,8 +19,6 @@ Neste repositório vamos aprofundar o estudo em visão computacional com diversa
 
 
 
-
-
 Link de estudo:
 
 * [Datacamp: Quick Start](https://www.datacamp.com/pt/blog/what-is-computer-vision)
