@@ -8,10 +8,21 @@ authors = [
 ]
 requires-python = ">=3.13"
 dependencies = [
+    "accelerate>=1.13.0",
+    "compressed-tensors>=0.17.0",
+    "cvzone>=1.6.1",
+    "hf-transfer>=0.1.9",
+    "pillow>=12.2.0",
+    "pygame>=2.6.1",
+    "python-dotenv>=1.0.0",
+    "streamlit>=1.58.0",
+    "tqdm>=4.68.1",
+    "transformers>=5.10.2",
     "ultralytics>=8.4.46",
 ]
 
 [dependency-groups]
 dev = [
     "black>=26.3.1",
+    "ruff>=0.15.16",
 ]
