@@ -12,6 +12,7 @@ dependencies = [
     "compressed-tensors>=0.17.0",
     "cvzone>=1.6.1",
     "hf-transfer>=0.1.9",
+    "mediapipe>=0.10.35",
     "pillow>=12.2.0",
     "pygame>=2.6.1",
     "python-dotenv>=1.0.0",
