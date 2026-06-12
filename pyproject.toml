@@ -6,7 +6,7 @@ readme = "README.md"
 authors = [
     { name = "EddyGiusepe", email = "eddychirinos.unac@gmail.com" }
 ]
-requires-python = ">=3.13"
+requires-python = ">=3.13, <3.14"
 dependencies = [
     "accelerate>=1.13.0",
     "compressed-tensors>=0.17.0",
@@ -27,3 +27,6 @@ dev = [
     "black>=26.3.1",
     "ruff>=0.15.16",
 ]
+
+[tool.black]
+target-version = ["py313"]
