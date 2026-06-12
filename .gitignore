@@ -234,3 +234,5 @@ runs/detect/
 driver_risk_assessment.md
 person_detection_and_face_visibility_analysis.md
 models/
+yolov8s.onnx
+yolo26x.onnx
