@@ -1,31 +1,42 @@
-import math
+#! /usr/bin/env python3
+"""
+Senior Data Scientist.: Dr. Eddy Giusepe Chirinos Isidro
+"""
+
 import io
+import math
 import os
 import struct
 import time
-import warnings
+import urllib.error
+import urllib.request
 import wave
 
 os.environ["PYGAME_HIDE_SUPPORT_PROMPT"] = "1"
-warnings.filterwarnings(
-    "ignore",
-    message="pkg_resources is deprecated as an API.*",
-    category=UserWarning,
-)
-
 import cv2
 import cvzone
+import mediapipe as mp
 import numpy as np
 import pygame
+from mediapipe.tasks import python
+from mediapipe.tasks.python import vision
 from PIL import Image, ImageDraw, ImageFont
 from ultralytics import YOLO
 
 # --- CONFIGURATION ---
-MODEL_NAME = "yolo26x.pt" # "yolov8s.pt"
+MODEL_NAME = "yolo26x.pt"  # "yolov8s.pt"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+FACE_DETECTOR_MODEL = os.path.join(BASE_DIR, "models", "blaze_face_short_range.tflite")
+FACE_DETECTOR_MODEL_URL = (
+    "https://storage.googleapis.com/mediapipe-models/face_detector/"
+    "blaze_face_short_range/float16/1/blaze_face_short_range.tflite"
+)
+FACE_DETECTOR_MIN_BYTES = 100_000
 CAMERA_INDEXES = [0, 1]
-FRAME_WIDTH = 1280
-FRAME_HEIGHT = 720
+FRAME_WIDTH = 1500  # 1280
+FRAME_HEIGHT = 920  # 720
 PERSON_CONFIDENCE_THRESHOLD = 0.50
+FACE_DETECTION_CONFIDENCE = 0.70
 WARNING_TRIGGER_SECONDS = 1.5
 DANGER_TRIGGER_SECONDS = 4.0
 CLEAR_ALERT_SECONDS = 1.0
@@ -68,6 +79,67 @@ def get_alert_state(elapsed_time):
     return SAFE_STATE
 
 
+def download_face_detector_model(model_path, model_url):
+    model_dir = os.path.dirname(model_path)
+    temp_path = f"{model_path}.tmp"
+    os.makedirs(model_dir, exist_ok=True)
+
+    if os.path.exists(temp_path):
+        os.remove(temp_path)
+
+    print("MediaPipe Face Detector model not found. Downloading model...")
+    print(f"Source: {model_url}")
+    print(f"Destination: {model_path}")
+
+    try:
+        with urllib.request.urlopen(model_url, timeout=60) as response:
+            with open(temp_path, "wb") as model_file:
+                while True:
+                    chunk = response.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    model_file.write(chunk)
+
+        downloaded_size = os.path.getsize(temp_path)
+        if downloaded_size < FACE_DETECTOR_MIN_BYTES:
+            raise OSError(
+                "Downloaded model is smaller than expected "
+                f"({downloaded_size} bytes)."
+            )
+
+        os.replace(temp_path, model_path)
+        print("MediaPipe Face Detector model downloaded successfully.")
+    except (OSError, urllib.error.URLError, TimeoutError) as exc:
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+        raise SystemExit(
+            "Unable to download the MediaPipe Face Detector model.\n"
+            f"Expected file: {model_path}\n"
+            f"Download URL: {model_url}\n"
+            "Manual fallback:\n"
+            f"  mkdir -p {model_dir}\n"
+            f'  curl -L "{model_url}" -o "{model_path}"\n'
+            f"Original error: {exc}"
+        ) from exc
+
+
+def load_face_detector(model_path):
+    if not os.path.exists(model_path):
+        download_face_detector_model(model_path, FACE_DETECTOR_MODEL_URL)
+
+    if not os.path.exists(model_path):
+        raise SystemExit(
+            "MediaPipe Face Detector model not found. " f"Expected file: {model_path}"
+        )
+
+    options = vision.FaceDetectorOptions(
+        base_options=python.BaseOptions(model_asset_path=model_path),
+        running_mode=vision.RunningMode.VIDEO,
+        min_detection_confidence=FACE_DETECTION_CONFIDENCE,
+    )
+    return vision.FaceDetector.create_from_options(options)
+
+
 def find_alarm_file():
     search_directories = []
     current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -102,7 +174,9 @@ def create_fallback_alarm_sound():
             frames = bytearray()
             for sample_index in range(total_samples):
                 time_position = sample_index / sample_rate
-                frequency = frequencies[(sample_index // (sample_rate // 6)) % len(frequencies)]
+                frequency = frequencies[
+                    (sample_index // (sample_rate // 6)) % len(frequencies)
+                ]
                 sample_value = int(
                     amplitude * math.sin(2 * math.pi * frequency * time_position)
                 )
@@ -213,12 +287,7 @@ LABEL_FONT = load_pillow_font(size=28)
 BANNER_FONT = load_pillow_font(size=30)
 
 # --- DETECTORS ---
-face_cascade_smart = cv2.CascadeClassifier(
-    cv2.data.haarcascades + "haarcascade_frontalface_alt.xml"
-)
-face_cascade_profile = cv2.CascadeClassifier(
-    cv2.data.haarcascades + "haarcascade_profileface.xml"
-)
+face_detector = load_face_detector(FACE_DETECTOR_MODEL)
 
 # --- AUDIO SETUP ---
 audio_available = False
@@ -252,9 +321,10 @@ anomaly_clear_start_time = None
 alert_state = SAFE_STATE
 held_alert_box = None
 consecutive_read_failures = 0
+face_detection_timestamp_ms = 0
 
 print(
-    "Starting PAD System "
+    "Starting Facial Surveillance System "
     f"(camera {active_camera_index}, warning={WARNING_TRIGGER_SECONDS:.1f}s, "
     f"danger={DANGER_TRIGGER_SECONDS:.1f}s, clear={CLEAR_ALERT_SECONDS:.1f}s)..."
 )
@@ -303,24 +373,20 @@ while True:
             if person_roi.size == 0:
                 continue
 
-            gray_roi = cv2.cvtColor(person_roi, cv2.COLOR_BGR2GRAY)
-
-            faces_front = face_cascade_smart.detectMultiScale(
-                gray_roi, 1.1, 5, minSize=(50, 50)
+            rgb_person_roi = cv2.cvtColor(person_roi, cv2.COLOR_BGR2RGB)
+            mp_person_roi = mp.Image(
+                image_format=mp.ImageFormat.SRGB,
+                data=rgb_person_roi,
             )
-            faces_profile = face_cascade_profile.detectMultiScale(
-                gray_roi, 1.1, 5, minSize=(50, 50)
+            face_detection_timestamp_ms = max(
+                int(time.perf_counter() * 1000),
+                face_detection_timestamp_ms + 1,
             )
-            flipped_gray = cv2.flip(gray_roi, 1)
-            faces_profile_flipped = face_cascade_profile.detectMultiScale(
-                flipped_gray, 1.1, 5, minSize=(50, 50)
+            face_results = face_detector.detect_for_video(
+                mp_person_roi,
+                face_detection_timestamp_ms,
             )
-
-            is_face_visible = (
-                len(faces_front) > 0
-                or len(faces_profile) > 0
-                or len(faces_profile_flipped) > 0
-            )
+            is_face_visible = bool(face_results.detections)
 
             if not is_face_visible:
                 current_frame_has_anomaly = True
@@ -367,7 +433,7 @@ while True:
             )
             add_text_overlay(
                 text_overlays,
-                text="VIOLAÇÃO DE SEGURANÇA",
+                text="SECURITY VIOLATION DETECTED",
                 position=(max(0, x1), max(35, y1)),
                 font=LABEL_FONT,
                 text_color=(255, 255, 255),
@@ -379,7 +445,7 @@ while True:
         cv2.rectangle(img, (0, 0), (FRAME_WIDTH, 50), (0, 0, 255), -1)
         add_text_overlay(
             text_overlays,
-            text="ALARME: ROSTO COBERTO DETECTADO",
+            text="ALARM: FACE COVERAGE DETECTED",
             position=(300, 10),
             font=BANNER_FONT,
             text_color=(255, 255, 255),
@@ -401,7 +467,7 @@ while True:
             )
             add_text_overlay(
                 text_overlays,
-                text=f"ATENÇÃO: Mostre o rosto ({time_left}s)",
+                text=f"WARNING: SHOW YOUR FACE ({time_left}s)",
                 position=(max(0, x1), max(35, y1)),
                 font=LABEL_FONT,
                 text_color=(0, 0, 0),
@@ -413,7 +479,7 @@ while True:
         cv2.rectangle(img, (0, 0), (FRAME_WIDTH, 50), (0, 255, 255), -1)
         add_text_overlay(
             text_overlays,
-            text=f"ATENÇÃO: Mostre o rosto ({time_left}s)",
+            text=f"WARNING: SHOW YOUR FACE ({time_left}s)",
             position=(300, 10),
             font=BANNER_FONT,
             text_color=(0, 0, 0),
@@ -432,7 +498,7 @@ while True:
             )
             add_text_overlay(
                 text_overlays,
-                text="SEGURO: Rosto verificado",
+                text="SAFE: FACE VERIFIED",
                 position=(max(0, x1), max(35, y1)),
                 font=LABEL_FONT,
                 text_color=(255, 255, 255),
@@ -458,9 +524,10 @@ while True:
             pygame.mixer.stop()
 
     img = render_text_overlays(img, text_overlays)
-    cv2.imshow("Vigilancia PAD - Logica Temporal", img)
+    cv2.imshow("Facial Surveillance - Temporal Logic", img)
     if cv2.waitKey(1) & 0xFF == ord("q"):
         break
 
+face_detector.close()
 cap.release()
 cv2.destroyAllWindows()
