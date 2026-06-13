@@ -1,8 +1,15 @@
 #! /usr/bin/env python3
 """
 Senior Data Scientist.: Dr. Eddy Giusepe Chirinos Isidro
-"""
 
+
+NOTA
+----
+O seguinte comando é para exportar o modelo YOLOv8s para ONNX.
+Execute no terminal:
+
+uv run yolo export model=yolov8s.pt format=onnx
+"""
 import io
 import math
 import os
@@ -11,6 +18,8 @@ import time
 import urllib.error
 import urllib.request
 import wave
+
+from torch import device
 
 os.environ["PYGAME_HIDE_SUPPORT_PROMPT"] = "1"
 import cv2
@@ -24,7 +33,7 @@ from PIL import Image, ImageDraw, ImageFont
 from ultralytics import YOLO
 
 # --- CONFIGURATION ---
-MODEL_NAME = "yolo26x.pt"  # "yolov8s.pt"
+MODEL_NAME = "yolov8s.onnx"  #yolov8s.onnx    yolo26x.pt  "yolov8s.pt"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 FACE_DETECTOR_MODEL = os.path.join(BASE_DIR, "models", "blaze_face_short_range.tflite")
 FACE_DETECTOR_MODEL_URL = (
@@ -282,7 +291,7 @@ if cap is None:
         f"Unable to open any configured camera. Checked indexes: {checked_indexes}."
     )
 
-model = YOLO(MODEL_NAME)
+model = YOLO(MODEL_NAME, task="detect")
 LABEL_FONT = load_pillow_font(size=28)
 BANNER_FONT = load_pillow_font(size=30)
 
@@ -343,7 +352,12 @@ while True:
 
     consecutive_read_failures = 0
     now = time.time()
-    results = model(img, stream=True, classes=[0], verbose=False)
+    results = model(img,
+                         stream=True,
+                         classes=[0],
+                         verbose=False,
+                         device="0" # cpu
+                         )
 
     current_frame_has_anomaly = False
     current_frame_box = None
